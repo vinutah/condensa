@@ -12,38 +12,39 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import sys
 import argparse
+import time
+import math 
+import os 
+import torch 
+import torch.nn as nn
+
+import data
+import model
+
 import logging
 import csv
 
 import gzip
 import pickle
 
-import torch
-import torch.nn as nn
 import torch.nn.parallel
 import torch.nn.utils
-import torchvision.datasets as datasets
 import torch.utils.data as data
 import torch.backends.cudnn as cudnn
-from torchvision import datasets, transforms
 
 import condensa
 from condensa import schemes
 
 import util
-import models
+import model
 
 def parse_args(arguments):
-    arch_map = {x: y for x, y in models.__dict__.items()
-                 if not x.startswith('__') and callable(y)}
 
     valid_schemes = ['PRUNE', 'PQ', 'FILTER']
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        description='CIFAR LC Compression Script')
+        description='WikiTest-2 LC Compression Script')
 
     # positional arguments
     parser.add_argument('model_file', metavar='model', help='Pretrained model filename')
@@ -57,16 +58,17 @@ def parse_args(arguments):
 
     # optional arguments
     parser.add_argument('--arch',
-                        default='alexnet',
-                        choices=sorted(arch_map),
-                        help='Model architecture: ' + ' | '.join(sorted(arch_map)))
-    parser.add_argument('--dataset', default='cifar10',
-                        choices=('cifar10', 'cifar100'), type=str,
+                        default='LSTM',
+                        help='type of recurrent net (RNN_TANH, RNN_RELU, LSTM, GRU, Transformer' )
+    parser.add_argument('--dataset', default='wikitext-2',
+                        choices=('ptb', 'wikitext-2', 'wikitext-103'), type=str,
                         help='dataset name')
-    #parser.add_argument('--align',
-    #                    type=int,
-    #                   default=None,
-    #                   help='Alignment for structured pruning')
+
+    parser.add_argument('--emsize',
+                        type=int,
+                        default=200,
+                        help='size of word embeddings')
+
     parser.add_argument('--l_batch_size',
                         metavar='N',
                         type=int,
