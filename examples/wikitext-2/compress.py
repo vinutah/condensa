@@ -213,11 +213,10 @@ def create_scheme(name):
     return scheme
 
 def create_compressor(args):
-    trainloader, valloader = \
-        util.cifar_train_val_loader(args.dataset,
-                                    args.l_batch_size,
-                                    args.val_batch_size)
-    testloader = util.cifar_test_loader(args.dataset, args.val_batch_size)
+    eval_batch_size = 10
+    trainloader = batchify(corpus.train, args.batch_size)
+    valloader = batchify(corpus.valid, eval_batch_size)
+    testloader = batchify(corpus.test, eval_batch_size)
 
     # Instantiate LC optimizer
     sgd_params = {'momentum': args.momentum, 'weight_decay': args.weight_decay}
@@ -284,11 +283,6 @@ def main(arguments):
         format='%(message)s')
 
     
-    eval_batch_size = 10
-    train_data = batchify(corpus.train, args.batch_size)
-    val_data = batchify(corpus.valid, eval_batch_size)
-    test_data = batchify(corpus.test, eval_batch_size)
-
     ###############################################################################
     # Build the model
     ###############################################################################
