@@ -171,6 +171,10 @@ def parse_args(arguments):
     if args.csv is None:
         args.csv = os.path.join('results', default_prefix + '.csv')
 
+    ########################################################################################
+    # Load data
+    ########################################################################################
+
     if args.dataset == 'wikitext-2':
         corpus = data.Corpus(args.dataset)
         pass
@@ -180,6 +184,17 @@ def parse_args(arguments):
         parser.error('Invalid dataset: must be wikitext-2 or wikitext-103')
 
     return args
+
+def batchify(data, bsz):
+    # Work out how cleanly we can divide the dataset into bsz parts.
+    nbatch = data.size(0) // bsz
+    
+    # Trim off any extra elements that wouldn't cleanly fit (remainders).
+    data = data.narrow(0, 0, nbatch * bsz)
+    
+    # Evenly divide the data across the bsz batches.
+    data = data.view(bsz, -1).t().contiguous()
+    return data.to(device)
 
 def create_scheme(name):
     if args.scheme == 'PRUNE':
@@ -245,6 +260,22 @@ def output_results(model_file, stats_file):
             writer.writerow(row)
     logging.info('[Condensa] Compression stats written to disk')
 
+
+def repackage_hidden(h):
+    """Wraps hidden states in new Tensors, to detach them from their history."""
+
+    if isinstance(h, torch.Tensor):
+        return h.detach()
+    else:
+        return tuple(repackage_hidden(v) for v in h)
+
+
+def get_batch(source, i):
+    seq_len = min(args.bptt, len(source) - 1 - i)
+    data = source[i:i+seq_len]
+    target = source[i+1:i+1+seq_len].view(-1)
+    return data, target    
+
 def main(arguments):
     args = parse_args(arguments)
 
@@ -252,7 +283,27 @@ def main(arguments):
         level=logging.INFO if args.verbose else logging.WARNING,
         format='%(message)s')
 
-    model = args.arch_func(num_classes=args.num_classes)
+    
+    eval_batch_size = 10
+    train_data = batchify(corpus.train, args.batch_size)
+    val_data = batchify(corpus.valid, eval_batch_size)
+    test_data = batchify(corpus.test, eval_batch_size)
+
+    ###############################################################################
+    # Build the model
+    ###############################################################################
+
+    ntokens = len(corpus.dictionary)
+    if args.model == 'Transformer':
+        model = model.TransformerModel(ntokens, args.emsize, args.nhead, args.nhid, args.nlayers, args.dropout).to(device)
+    else:
+        model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.tied).to(device)
+
+    criterion = nn.CrossEntropyLoss()
+
+    ###############################################################################
+    # Load the pretrainted model
+    ###############################################################################
     model.load_state_dict(torch.load(args.model_file))
 
     scheme = create_scheme(args.scheme)
