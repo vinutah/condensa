@@ -69,6 +69,31 @@ def parse_args(arguments):
                         default=200,
                         help='size of word embeddings')
 
+    parser.add_argument('--nhid',
+                        type=int,
+                        default=2,
+                        help='number of layers')
+
+    parser.add_argument('--clip',
+                        type=float,
+                        default=0.25,
+                        help='gradient clipping')
+
+    parser.add_argument('--bptt',
+                        type=int,
+                        default=35,
+                        metavar='N',
+                        help='sequence length')
+
+    parser.add_argument('--dropout',
+                        type=float,
+                        default=0.2,
+                        help='dropout applied to layers (0 = no dropout)')
+
+    parser.add_argument('--tied',
+                        action=store_true,
+                        help='tie the word embedding and softmax weights')
+
     parser.add_argument('--l_batch_size',
                         metavar='N',
                         type=int,
@@ -80,7 +105,7 @@ def parse_args(arguments):
                         help='Validation batch size')
     parser.add_argument('--lr',
                         type=float,
-                        default=0.02,
+                        default=20, # This is as per PyTorch Example word_language_model
                         help='Initial learning rate')
     parser.add_argument('--lr_end',
                         type=float,
@@ -146,16 +171,13 @@ def parse_args(arguments):
     if args.csv is None:
         args.csv = os.path.join('results', default_prefix + '.csv')
 
-    if args.dataset == 'cifar10':
-        args.dataset = datasets.CIFAR10
-        args.num_classes = 10
-    elif args.dataset == 'cifar100':
-        args.dataset = datasets.CIFAR100
-        args.num_classes = 100
+    if args.dataset == 'wikitext-2':
+        corpus = data.Corpus(args.dataset)
+        pass
+    elif args.dataset == 'wikitext-103':
+        pass
     else:
-        parser.error('Invalid dataset: must be CIFAR-10 or CIFAR-100')
-
-    args.arch_func = arch_map[args.arch]
+        parser.error('Invalid dataset: must be wikitext-2 or wikitext-103')
 
     return args
 
