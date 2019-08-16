@@ -166,6 +166,8 @@ def create_scheme(name):
              schemes.Quantize()])
     elif args.scheme == 'FILTER':
         scheme = schemes.FilterPrune(args.density)
+    elif args.scheme == 'BLOCK':
+        scheme = schemes.BlockPrune(args.density, (8,8))    
     else:
         # should never happen
         raise RuntimeError('Unknown scheme: {}'.format(args.scheme))
