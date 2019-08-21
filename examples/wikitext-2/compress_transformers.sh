@@ -33,6 +33,28 @@ pip3 install isoweek pandas_summary
 pip3 install ipywidgets tqdm torchtext sklearn-pandas
 
 # have your condensa-job here
+SCHEME=${1}
+DENSITY=${2}
+STEPS=${3}
+
+PREFIX=transformer_${SCHEME}_${DENSITY//[\.]/_}
+
+python compress.py\
+       --arch transformer --dataset wikitext2\
+       --lr 5 --lr_decay 1e-4\
+       --weight_decay 0\
+       --momentum 0.95\
+       --mb_iterations_per_l 3000\
+       --mb_iterations_first_l 30000\
+       --mu_init 1e-3 --mu_multiplier 1.1\
+       --l_batch_size 128\
+       --model trained/transformer.pth\
+       --scheme ${SCHEME}\
+       --density ${DENSITY}\
+       --out compressed/${PREFIX}.pth\
+       --csv results/${PREFIX}.csv\
+       -v --steps ${STEPS}
+
 
 # print time so I know when it finished
 python -c "import time; print(time.strftime('%Y-%m-%d %H:%M'))"
