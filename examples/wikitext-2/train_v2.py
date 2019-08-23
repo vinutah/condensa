@@ -33,7 +33,9 @@ def parse_args(arguments):
                         help='gradient clipping')
     parser.add_argument('--epochs', type=int, default=40,
                         help='upper epoch limit')
-    parser.add_argument('--batch_size', type=int, default=20, metavar='N',
+    parser.add_argument('--batch-size', type=int, default=20, metavar='N',
+                        help='batch size')
+    parser.add_argument('--eval-batch-size', type=int, default=10, metavar='N',
                         help='batch size')
     parser.add_argument('--bptt', type=int, default=35,
                         help='sequence length')
@@ -98,7 +100,28 @@ def batchify(data, bsz):
     return data.to(device)
 
 
-
+def build_model():
+    """
+    Build the model
+    """
+    ntokens = len(corpus.dictionary)
+    if args.model == 'Transformer':
+        model = model.TransformerModel(ntokens, 
+                args.emsize, 
+                args.nhead, 
+                args.nhid, 
+                args.nlayers, 
+                args.dropout).to(device)
+    else:
+        model = model.RNNModel(args.model, 
+                ntokens, 
+                args.emsize, 
+                args.nhid, 
+                args.nlayers, 
+                args.dropout, 
+                args.tied).to(device)
+        
+    return model
     
 def main(arguments):
     args = parse_args(arguments)
@@ -107,11 +130,11 @@ def main(arguments):
     
     corpus = load_data(args.data)
     
-    eval_batch_size = 10
     train_data = batchify(corpus.train, args.batch_size)
     val_data = batchify(corpus.valid, eval_batch_size)
     test_data = batchify(corpus.test, eval_batch_size)
 
+    build_model()
     
     
     return 0
