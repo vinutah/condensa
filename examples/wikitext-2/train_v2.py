@@ -13,7 +13,10 @@ import data
 import model
 
 def parse_args(arguments):
-    parser = argparse.ArgumentParser(description='PyTorch Wikitext-2 RNN/LSTM Language Model')
+    parser = argparse.ArgumentParser(
+            formatter_class=ArgumentDefaultsHelpFormatter,
+            description='PyTorch Wikitext-2 RNN/LSTM Language Model',
+            )
     parser.add_argument('--data', type=str, default='./data/wikitext-2',
                         help='location of the data corpus')
     parser.add_argument('--model', type=str, default='LSTM',
@@ -51,12 +54,66 @@ def parse_args(arguments):
     
     parser.add_argument('--nhead', type=int, default=2,
                         help='the number of heads in the encoder/decoder of the transformer model')
+    return parser.parse_args(arguments)
+
+    
+def set_seed(seed):
+    # Set the random seed manually for reproducibility.
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        if not args.cuda:
+        print("WARNING: You have a CUDA device, so you should probably run with --cuda")
+    return seed
+    
+def set_device(args.cuda):
+    device = torch.device("cuda" if args.cuda else "cpu")
+    return device
+    
+
+def load_data(data):
+    corpus = data.Corpus(data)
+    return corpus
+    
+
+def batchify(data, bsz):
+    """
+    Starting from sequential data, batchify arranges the dataset into columns.
+    For instance, with the alphabet as the sequence and batch size 4, we'd get
+    ┌ a g m s ┐
+    │ b h n t │
+    │ c i o u │
+    │ d j p v │
+    │ e k q w │
+    └ f l r x ┘.
+    These columns are treated as independent by the model, which means that the
+    dependence of e. g. 'g' on 'f' can not be learned, but allows more efficient
+    batch processing.
+    """
+    # Work out how cleanly we can divide the dataset into bsz parts.
+    nbatch = data.size(0) // bsz
+    # Trim off any extra elements that wouldn't cleanly fit (remainders).
+    data = data.narrow(0, 0, nbatch * bsz)
+    # Evenly divide the data across the bsz batches.
+    data = data.view(bsz, -1).t().contiguous()
+    return data.to(device)
 
 
 
     
 def main(arguments):
-    parse_args(arguments)
+    args = parse_args(arguments)
+    set_seed(args.seed)
+    device = set_device(args.cuda)
+    
+    corpus = load_data(args.data)
+    
+    eval_batch_size = 10
+    train_data = batchify(corpus.train, args.batch_size)
+    val_data = batchify(corpus.valid, eval_batch_size)
+    test_data = batchify(corpus.test, eval_batch_size)
+
+    
+    
     return 0
 
 if __name__ == '':
