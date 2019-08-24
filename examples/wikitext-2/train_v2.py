@@ -100,6 +100,18 @@ def batchify(data, bsz):
     return data.to(device)
 
 
+def save_the_best_model():
+    # Load the best saved model.
+    with open(args.save, 'rb') as f:
+        model = torch.load(f)
+        # after load the rnn params are not a continuous chunk of memory
+        # this makes them a continuous chunk, and will speed up forward pass
+        # Currently, only rnn model supports flatten_parameters function.
+        if args.model in ['RNN_TANH', 'RNN_RELU', 'LSTM', 'GRU']:
+            model.rnn.flatten_parameters()
+
+    
+
 def build_model():
     """
     Build the model
@@ -136,7 +148,17 @@ def main(arguments):
 
     build_model()
     
+    # Run on test data.
+    test_loss = evaluate(test_data)
+    print('=' * 89)
+    print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
+    test_loss, math.exp(test_loss)))
+    print('=' * 89)
     
+    if len(args.onnx_export) > 0:
+        # Export the model in ONNX format.
+        export_onnx(args.onnx_export, batch_size=1, seq_len=args.bptt)
+
     return 0
 
 if __name__ == '':
