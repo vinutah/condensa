@@ -184,8 +184,9 @@ def train():
         hidden = model.init_hidden(args.batch_size)
     for batch, i in enumerate(range(0, train_data.size(0) - 1, args.bptt)):
         data, targets = get_batch(train_data, i)
-        # Starting each batch, we detach the hidden state from how it was previously produced.
-        # If we didn't, the model would try backpropagating all the way to start of the dataset.
+        # Starting each batch, we detach the hidden state from how it was
+        # previously produced.  If we didn't, the model would try
+        # backpropagating all the way to start of the dataset.
         model.zero_grad()
         if args.model == 'Transformer':
             output = model(data)
@@ -232,6 +233,18 @@ def evaluate(data_source):
             total_loss += len(data) * criterion(output_flat, targets).item()
     return total_loss / (len(data_source) - 1)
 
+class BatchLoader:
+    def __init__(self, data, bptt):
+        self.data = data
+        self.bptt = bptt
+    def __len__(self):
+        return len(self.data) - 1
+    def __iter__(self):
+        for i in range(0, len(self), self.bptt):
+            seq_len = min(self.bptt, len(self) - i)
+            data = self.data[i:i+seq_len]
+            target = self.data[i+1:i+1+seq_len].view(-1)
+            yield data, target
 
 def main(arguments):
     args = parse_args(arguments)
