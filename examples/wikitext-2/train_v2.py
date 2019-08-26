@@ -282,7 +282,7 @@ def main(arguments):
 
     # At any point you can hit Ctrl + C to break out of training early.
     try:
-        run_training(model, trainer, evaluator, train_loader, val_loader,
+        run_training(trainer, model, evaluator, train_loader, val_loader,
                      args.lr, args.epochs, args.save)
     except KeyboardInterrupt:
         print('-' * 89)
