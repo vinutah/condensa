@@ -70,22 +70,7 @@ def parse_args(arguments):
                   'with --cuda')
     return args
 
-
-def set_seed(seed):
-    # Set the random seed manually for reproducibility.
-    torch.manual_seed(seed)
-    return seed
-
-def set_device(use_cuda):
-    device = torch.device("cuda" if use_cuda else "cpu")
-    return device
-
-def load_data(data):
-    corpus = data.Corpus(data)
-    return corpus
-
-
-def batchify(data, bsz):
+def batchify(data, batch_size, device):
     """
     Starting from sequential data, batchify arranges the dataset into columns.
     For instance, with the alphabet as the sequence and batch size 4, we'd get
@@ -99,12 +84,12 @@ def batchify(data, bsz):
     dependence of e. g. 'g' on 'f' can not be learned, but allows more efficient
     batch processing.
     """
-    # Work out how cleanly we can divide the dataset into bsz parts.
-    nbatch = data.size(0) // bsz
+    # Work out how cleanly we can divide the dataset into batch_size parts.
+    nbatch = data.size(0) // batch_size
     # Trim off any extra elements that wouldn't cleanly fit (remainders).
-    data = data.narrow(0, 0, nbatch * bsz)
-    # Evenly divide the data across the bsz batches.
-    data = data.view(bsz, -1).t().contiguous()
+    data = data.narrow(0, 0, nbatch * batch_size)
+    # Evenly divide the data across the batch_size batches.
+    data = data.view(batch_size, -1).t().contiguous()
     return data.to(device)
 
 
@@ -117,40 +102,21 @@ def repackage_hidden(h):
         return tuple(repackage_hidden(v) for v in h)
 
 
-def save_the_best_model():
+def load_best_model(filename, model_type):
     # Load the best saved model.
-    with open(args.save, 'rb') as f:
+    with open(filename, 'rb') as f:
         model = torch.load(f)
         # after load the rnn params are not a continuous chunk of memory
         # this makes them a continuous chunk, and will speed up forward pass
         # Currently, only rnn model supports flatten_parameters function.
-        if args.model in ['RNN_TANH', 'RNN_RELU', 'LSTM', 'GRU']:
+        if model_type in ['RNN_TANH', 'RNN_RELU', 'LSTM', 'GRU']:
             model.rnn.flatten_parameters()
+    return model
 
-
-def get_batch(source, i):
-    """
-    # get_batch subdivides the source data into chunks of length args.bptt.
-    # If source is equal to the example output of the batchify function, with
-    # a bptt-limit of 2, we'd get the following two Variables for i = 0:
-    # ┌ a g m s ┐ ┌ b h n t ┐
-    # └ b h n t ┘ └ c i o u ┘
-    # Note that despite the name of the function, the subdivison of data is not
-    # done along the batch dimension (i.e. dimension 1), since that was handled
-    # by the batchify function. The chunks are along dimension 0, corresponding
-    # to the seq_len dimension in the LSTM.
-    """
-    seq_len = min(args.bptt, len(source) - 1 - i)
-    data = source[i:i+seq_len]
-    target = source[i+1:i+1+seq_len].view(-1)
-    return data, target
-
-
-def build_model():
+def build_model(args, ntokens, device):
     """
     Build the model
     """
-    ntokens = len(corpus.dictionary)
     if args.model == 'Transformer':
         model = model_module.TransformerModel(
             ntokens,
@@ -174,16 +140,15 @@ def build_model():
     return model
 
 
-def train():
+def train(args, model, ntokens, train_loader, criterion, lr):
     # Turn on training mode which enables dropout.
     model.train()
     total_loss = 0.
     start_time = time.time()
-    ntokens = len(corpus.dictionary)
     if args.model != 'Transformer':
         hidden = model.init_hidden(args.batch_size)
-    for batch, i in enumerate(range(0, train_data.size(0) - 1, args.bptt)):
-        data, targets = get_batch(train_data, i)
+    for batch, data_and_targets in enumerate(train_loader):
+        data, targets = data_and_targets
         # Starting each batch, we detach the hidden state from how it was
         # previously produced.  If we didn't, the model would try
         # backpropagating all the way to start of the dataset.
@@ -206,24 +171,21 @@ def train():
         if batch % args.log_interval == 0 and batch > 0:
             cur_loss = total_loss / args.log_interval
             elapsed = time.time() - start_time
-            print('| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} | '
+            print('| {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} | '
                     'loss {:5.2f} | ppl {:8.2f}'.format(
-                epoch, batch, len(train_data) // args.bptt, lr,
+                batch, (len(train_loader) + 1) // args.bptt, lr,
                 elapsed * 1000 / args.log_interval, cur_loss, math.exp(cur_loss)))
             total_loss = 0
             start_time = time.time()
 
 
-def evaluate(data_source):
-    # Turn on evaluation mode which disables dropout.
-    model.eval()
+def evaluate(args, model, data_loader, ntokens, criterion):
+    model.eval() # Turn on evaluation mode which disables dropout.
     total_loss = 0.
-    ntokens = len(corpus.dictionary)
     if args.model != 'Transformer':
-        hidden = model.init_hidden(eval_batch_size)
+        hidden = model.init_hidden(args.eval_batch_size)
     with torch.no_grad():
-        for i in range(0, data_source.size(0) - 1, args.bptt):
-            data, targets = get_batch(data_source, i)
+        for data, targets in data_loader:
             if args.model == 'Transformer':
                 output = model(data)
             else:
@@ -231,7 +193,7 @@ def evaluate(data_source):
                 hidden = repackage_hidden(hidden)
             output_flat = output.view(-1, ntokens)
             total_loss += len(data) * criterion(output_flat, targets).item()
-    return total_loss / (len(data_source) - 1)
+    return total_loss / len(data_loader)
 
 class BatchLoader:
     def __init__(self, data, bptt):
@@ -240,35 +202,69 @@ class BatchLoader:
     def __len__(self):
         return len(self.data) - 1
     def __iter__(self):
+        '''
+        get_batch subdivides the source data into chunks of length
+        args.bptt.  If source is equal to the example output of the
+        batchify function, with a bptt-limit of 2, we'd get the
+        following two Variables for i = 0:
+
+        ┌ a g m s ┐ ┌ b h n t ┐
+        └ b h n t ┘ └ c i o u ┘
+
+        Note that despite the name of the function, the subdivison of
+        data is not done along the batch dimension (i.e. dimension 1),
+        since that was handled by the batchify function. The chunks
+        are along dimension 0, corresponding to the seq_len dimension
+        in the LSTM.
+        '''
         for i in range(0, len(self), self.bptt):
             seq_len = min(self.bptt, len(self) - i)
             data = self.data[i:i+seq_len]
             target = self.data[i+1:i+1+seq_len].view(-1)
             yield data, target
 
+def make_data_loaders(corpus, device, train_batch_size, eval_batch_size, bptt):
+    'Returns three loaders: (train_loder, val_loader, test_loader)'
+    train_data = batchify(corpus.train, train_batch_size, device)
+    val_data = batchify(corpus.valid, eval_batch_size, device)
+    test_data = batchify(corpus.test, eval_batch_size, device)
+
+    train_loader = BatchLoader(train_data, bptt)
+    val_loader = BatchLoader(val_data, bptt)
+    test_loader = BatchLoader(test_data, bptt)
+
+    return train_loader, val_loader, test_loader
+
 def main(arguments):
     args = parse_args(arguments)
-    set_seed(args.seed)
-    device = set_device(args.cuda)
 
-    corpus = load_data(args.data)
+    torch.manual_seed(args.seed)
+    device = torch.device("cuda" if args.cuda else "cpu")
+    corpus = data.Corpus(args.data)
+    ntokens = len(corpus.dictionary)
 
-    train_data = batchify(corpus.train, args.batch_size)
-    val_data = batchify(corpus.valid, eval_batch_size)
-    test_data = batchify(corpus.test, eval_batch_size)
+    train_loader, val_loader, test_loader = make_data_loaders(
+        corpus, device, args.batch_size, args.eval_batch_size, args.bptt)
 
-    build_model()
+    model = build_model(args, ntokens, device)
+    criterion = nn.CrossEntropyLoss()
 
     # Loop over epochs.
     lr = args.lr
     best_val_loss = None
 
+    trainer = lambda learning_rate: \
+        train(args, model, ntokens, train_loader, criterion,
+              learning_rate)
+    evaluator = lambda model, data_loader: \
+        evaluate(args, model, data_loader, ntokens, criterion)
+
     # At any point you can hit Ctrl + C to break out of training early.
     try:
         for epoch in range(1, args.epochs+1):
             epoch_start_time = time.time()
-            train()
-            val_loss = evaluate(val_data)
+            trainer(lr)
+            val_loss = evaluator(model, val_loader)
             print('-' * 89)
             print('| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.2f} | '
                 'valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
@@ -288,26 +284,17 @@ def main(arguments):
         print('-' * 89)
         print('Exiting from training early')
 
-    # Load the best saved model.
-    with open(args.save, 'rb') as f:
-        model = torch.load(f)
-        # after load the rnn params are not a continuous chunk of memory
-        # this makes them a continuous chunk, and will speed up forward pass
-        # Currently, only rnn model supports flatten_parameters function.
-        if args.model in ['RNN_TANH', 'RNN_RELU', 'LSTM', 'GRU']:
-            model.rnn.flatten_parameters()
-
-    # Run on test data.
-    test_loss = evaluate(test_data)
+    model = load_best_model(args.save, args.model)
+    test_loss = evaluator(model, test_loader)
 
     print('=' * 89)
     print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
     test_loss, math.exp(test_loss)))
     print('=' * 89)
 
-    if len(args.onnx_export) > 0:
-        # Export the model in ONNX format.
-        export_onnx(args.onnx_export, batch_size=1, seq_len=args.bptt)
+    #if len(args.onnx_export) > 0:
+    #    # Export the model in ONNX format.
+    #    export_onnx(args.onnx_export, batch_size=1, seq_len=args.bptt)
 
     return 0
 
