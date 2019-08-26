@@ -236,7 +236,7 @@ def make_data_loaders(corpus, device, train_batch_size, eval_batch_size, bptt):
     return train_loader, val_loader, test_loader
 
 def run_training(trainer, model, evaluator, train_loader, val_loader,
-                 lr, epochs):
+                 lr, epochs, filename):
     best_val_loss = None
     for epoch in range(1, epochs + 1):
         epoch_start_time = time.time()
@@ -250,7 +250,7 @@ def run_training(trainer, model, evaluator, train_loader, val_loader,
         # Save the model if the validation loss is the best we've seen so
         # far.
         if not best_val_loss or val_loss < best_val_loss:
-            with open(args.save, 'wb') as f:
+            with open(filename, 'wb') as f:
                 torch.save(model, f)
             best_val_loss = val_loss
         else:
@@ -283,7 +283,7 @@ def main(arguments):
     # At any point you can hit Ctrl + C to break out of training early.
     try:
         run_training(model, trainer, evaluator, train_loader, val_loader,
-                     args.lr, args.epochs)
+                     args.lr, args.epochs, args.save)
     except KeyboardInterrupt:
         print('-' * 89)
         print('Exiting from training early')
