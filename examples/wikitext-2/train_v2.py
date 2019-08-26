@@ -5,22 +5,25 @@ import argparse
 import time
 import math
 import os
+
 import torch
 import torch.nn as nn
 import torch.onnx
 
 import data
-import model
+import model as model_module
 
 def parse_args(arguments):
     parser = argparse.ArgumentParser(
-            formatter_class=ArgumentDefaultsHelpFormatter,
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
             description='PyTorch Wikitext-2 RNN/LSTM Language Model',
             )
     parser.add_argument('--data', type=str, default='./data/wikitext-2',
                         help='location of the data corpus')
     parser.add_argument('--model', type=str, default='LSTM',
-                        help='type of recurrent net (RNN_TANH, RNN_RELU, LSTM, GRU, Transformer)')
+                        choices = ('RNN_TANH', 'RNN_RELU', 'LSTM', 'GRU',
+                                   'Transformer'),
+                        help='type of recurrent net')
     parser.add_argument('--emsize', type=int, default=200,
                         help='size of word embeddings')
     parser.add_argument('--nhid', type=int, default=200,
@@ -53,29 +56,34 @@ def parse_args(arguments):
                         help='path to save the final model')
     parser.add_argument('--onnx-export', type=str, default='',
                         help='path to export the final model in onnx format')
-    
-    parser.add_argument('--nhead', type=int, default=2,
-                        help='the number of heads in the encoder/decoder of the transformer model')
-    return parser.parse_args(arguments)
 
-    
+    parser.add_argument('--nhead', type=int, default=2,
+                        help='''
+                            the number of heads in the encoder/decoder of the
+                            transformer model.
+                            ''')
+    args = parser.parse_args(arguments)
+    print(args)
+    if torch.cuda.is_available():
+        if not args.cuda:
+            print('WARNING: You have a CUDA device, so you should probably run'
+                  'with --cuda')
+    return args
+
+
 def set_seed(seed):
     # Set the random seed manually for reproducibility.
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        if not args.cuda:
-        print("WARNING: You have a CUDA device, so you should probably run with --cuda")
     return seed
-    
-def set_device(args.cuda):
-    device = torch.device("cuda" if args.cuda else "cpu")
+
+def set_device(use_cuda):
+    device = torch.device("cuda" if use_cuda else "cpu")
     return device
-    
 
 def load_data(data):
     corpus = data.Corpus(data)
     return corpus
-    
+
 
 def batchify(data, bsz):
     """
@@ -107,7 +115,7 @@ def repackage_hidden(h):
         return h.detach()
     else:
         return tuple(repackage_hidden(v) for v in h)
-    
+
 
 def save_the_best_model():
     # Load the best saved model.
@@ -144,21 +152,25 @@ def build_model():
     """
     ntokens = len(corpus.dictionary)
     if args.model == 'Transformer':
-        model = model.TransformerModel(ntokens, 
-                args.emsize, 
-                args.nhead, 
-                args.nhid, 
-                args.nlayers, 
-                args.dropout).to(device)
+        model = model_module.TransformerModel(
+            ntokens,
+            args.emsize,
+            args.nhead,
+            args.nhid,
+            args.nlayers,
+            args.dropout,
+        ).to(device)
     else:
-        model = model.RNNModel(args.model, 
-                ntokens, 
-                args.emsize, 
-                args.nhid, 
-                args.nlayers, 
-                args.dropout, 
-                args.tied).to(device)
-        
+        model = model_module.RNNModel(
+            args.model,
+            ntokens,
+            args.emsize,
+            args.nhid,
+            args.nlayers,
+            args.dropout,
+            args.tied,
+        ).to(device)
+
     return model
 
 
@@ -172,8 +184,9 @@ def train():
         hidden = model.init_hidden(args.batch_size)
     for batch, i in enumerate(range(0, train_data.size(0) - 1, args.bptt)):
         data, targets = get_batch(train_data, i)
-        # Starting each batch, we detach the hidden state from how it was previously produced.
-        # If we didn't, the model would try backpropagating all the way to start of the dataset.
+        # Starting each batch, we detach the hidden state from how it was
+        # previously produced.  If we didn't, the model would try
+        # backpropagating all the way to start of the dataset.
         model.zero_grad()
         if args.model == 'Transformer':
             output = model(data)
@@ -199,7 +212,7 @@ def train():
                 elapsed * 1000 / args.log_interval, cur_loss, math.exp(cur_loss)))
             total_loss = 0
             start_time = time.time()
-            
+
 
 def evaluate(data_source):
     # Turn on evaluation mode which disables dropout.
@@ -220,20 +233,32 @@ def evaluate(data_source):
             total_loss += len(data) * criterion(output_flat, targets).item()
     return total_loss / (len(data_source) - 1)
 
-    
+class BatchLoader:
+    def __init__(self, data, bptt):
+        self.data = data
+        self.bptt = bptt
+    def __len__(self):
+        return len(self.data) - 1
+    def __iter__(self):
+        for i in range(0, len(self), self.bptt):
+            seq_len = min(self.bptt, len(self) - i)
+            data = self.data[i:i+seq_len]
+            target = self.data[i+1:i+1+seq_len].view(-1)
+            yield data, target
+
 def main(arguments):
     args = parse_args(arguments)
     set_seed(args.seed)
     device = set_device(args.cuda)
-    
+
     corpus = load_data(args.data)
-    
+
     train_data = batchify(corpus.train, args.batch_size)
     val_data = batchify(corpus.valid, eval_batch_size)
     test_data = batchify(corpus.test, eval_batch_size)
 
     build_model()
-    
+
     # Loop over epochs.
     lr = args.lr
     best_val_loss = None
@@ -249,13 +274,15 @@ def main(arguments):
                 'valid ppl {:8.2f}'.format(epoch, (time.time() - epoch_start_time),
                                            val_loss, math.exp(val_loss)))
             print('-' * 89)
-            # Save the model if the validation loss is the best we've seen so far.
+            # Save the model if the validation loss is the best we've seen so
+            # far.
             if not best_val_loss or val_loss < best_val_loss:
                 with open(args.save, 'wb') as f:
-                torch.save(model, f)
-            best_val_loss = val_loss
+                    torch.save(model, f)
+                best_val_loss = val_loss
             else:
-                # Anneal the learning rate if no improvement has been seen in the validation dataset.
+                # Anneal the learning rate if no improvement has been seen in
+                # the validation dataset.
                 lr /= 4.0
     except KeyboardInterrupt:
         print('-' * 89)
@@ -269,20 +296,20 @@ def main(arguments):
         # Currently, only rnn model supports flatten_parameters function.
         if args.model in ['RNN_TANH', 'RNN_RELU', 'LSTM', 'GRU']:
             model.rnn.flatten_parameters()
-    
+
     # Run on test data.
     test_loss = evaluate(test_data)
-    
+
     print('=' * 89)
     print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
     test_loss, math.exp(test_loss)))
     print('=' * 89)
-    
+
     if len(args.onnx_export) > 0:
         # Export the model in ONNX format.
         export_onnx(args.onnx_export, batch_size=1, seq_len=args.bptt)
 
     return 0
 
-if __name__ == '':
-    sys.exit(main(sys.argv[1:0])
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))
