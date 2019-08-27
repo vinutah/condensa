@@ -83,6 +83,9 @@ def batchify(data, batch_size, device):
     These columns are treated as independent by the model, which means that the
     dependence of e. g. 'g' on 'f' can not be learned, but allows more efficient
     batch processing.
+    >>> train_data = batchify(corpus.train, train_batch_size, device)
+    >>> val_data = batchify(corpus.valid, eval_batch_size, device)
+    >>> test_data = batchify(corpus.test, eval_batch_size, device)
     """
     # Work out how cleanly we can divide the dataset into batch_size parts.
     nbatch = data.size(0) // batch_size
@@ -92,7 +95,56 @@ def batchify(data, batch_size, device):
     data = data.view(batch_size, -1).t().contiguous()
     return data.to(device)
 
+class BatchLoader:
+    """
+    subdivides the source data into chunks of length
+    args.bptt.  If source is equal to the example output of the
+    batchify function, with a bptt-limit of 2, we'd get the
+    following two Variables for i = 0:
 
+    ┌ a g m s ┐ ┌ b h n t ┐
+    └ b h n t ┘ └ c i o u ┘
+
+    Note that despite the name of the function, the subdivison of
+    data is not done along the batch dimension (i.e. dimension 1),
+    since that was handled by the batchify function. The chunks
+    are along dimension 0, corresponding to the seq_len dimension
+    in the LSTM.
+    >>> train_loader = BatchLoader(train_data, bptt)
+    >>> val_loader   = BatchLoader(val_data, bptt)
+    >>> test_loader  = BatchLoader(test_data, bptt)
+    """
+    def __init__(self, data, bptt):
+        self.data = data
+        self.bptt = bptt
+    def __len__(self):
+        return len(self.data) - 1
+    def __iter__(self):
+        for i in range(0, len(self), self.bptt):
+            seq_len = min(self.bptt, len(self) - i)
+            data = self.data[i:i+seq_len]
+            target = self.data[i+1:i+1+seq_len].view(-1)
+            yield data, target
+
+def make_data_loaders(corpus, device, train_batch_size, eval_batch_size, bptt):
+        """
+        Returns three loaders: (train_loder, val_loader, test_loader)
+        >>> train_loader, val_loader, test_loader = make_data_loaders( corpus, device,
+                                                                       args.batch_size, 
+                                                                       args.eval_batch_size, 
+                                                                       args.bptt)
+        """
+        train_data = batchify(corpus.train, train_batch_size, device)
+        val_data = batchify(corpus.valid, eval_batch_size, device)
+        test_data = batchify(corpus.test, eval_batch_size, device)
+
+        train_loader = BatchLoader(train_data, bptt)
+        val_loader = BatchLoader(val_data, bptt)
+        test_loader = BatchLoader(test_data, bptt)
+
+        return train_loader, val_loader, test_loader
+    
+    
 def repackage_hidden(h):
     """Wraps hidden states in new Tensors, to detach them from their history."""
 
@@ -195,45 +247,9 @@ def evaluate(args, model, data_loader, ntokens, criterion):
             total_loss += len(data) * criterion(output_flat, targets).item()
     return total_loss / len(data_loader)
 
-class BatchLoader:
-    def __init__(self, data, bptt):
-        self.data = data
-        self.bptt = bptt
-    def __len__(self):
-        return len(self.data) - 1
-    def __iter__(self):
-        '''
-        get_batch subdivides the source data into chunks of length
-        args.bptt.  If source is equal to the example output of the
-        batchify function, with a bptt-limit of 2, we'd get the
-        following two Variables for i = 0:
 
-        ┌ a g m s ┐ ┌ b h n t ┐
-        └ b h n t ┘ └ c i o u ┘
 
-        Note that despite the name of the function, the subdivison of
-        data is not done along the batch dimension (i.e. dimension 1),
-        since that was handled by the batchify function. The chunks
-        are along dimension 0, corresponding to the seq_len dimension
-        in the LSTM.
-        '''
-        for i in range(0, len(self), self.bptt):
-            seq_len = min(self.bptt, len(self) - i)
-            data = self.data[i:i+seq_len]
-            target = self.data[i+1:i+1+seq_len].view(-1)
-            yield data, target
 
-def make_data_loaders(corpus, device, train_batch_size, eval_batch_size, bptt):
-    'Returns three loaders: (train_loder, val_loader, test_loader)'
-    train_data = batchify(corpus.train, train_batch_size, device)
-    val_data = batchify(corpus.valid, eval_batch_size, device)
-    test_data = batchify(corpus.test, eval_batch_size, device)
-
-    train_loader = BatchLoader(train_data, bptt)
-    val_loader = BatchLoader(val_data, bptt)
-    test_loader = BatchLoader(test_data, bptt)
-
-    return train_loader, val_loader, test_loader
 
 def run_training(trainer, model, evaluator, train_loader, val_loader,
                  lr, epochs, filename):
