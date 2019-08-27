@@ -12,6 +12,8 @@ import logging
 import torch
 import torch.nn as nn
 
+import csv
+
 
 
 def parse_args(arguments):
@@ -25,6 +27,7 @@ def parse_args(arguments):
 
     # Transformer Model related
     parser.add_argument('--batch_size', type=int, default=20, metavar='N', help='batch size')
+    parser.add_argument('--eval_batch_size', type=int, default=20, metavar='N', help='eval batch size')
     parser.add_argument('--seed', type=int, default=1111, help='random seed')
     parser.add_argument('--cuda', action='store_true', help='use CUDA')
 
@@ -78,7 +81,6 @@ def parse_args(arguments):
 
 
     return parser.parse_args(arguments)
-
 
 def batchify(data, batch_size, device):
     """
@@ -151,6 +153,8 @@ def make_data_loaders(corpus, device, train_batch_size, eval_batch_size, bptt):
         train_loader = BatchLoader(train_data, bptt)
         val_loader = BatchLoader(val_data, bptt)
         test_loader = BatchLoader(test_data, bptt)
+        
+        return train_loader, val_loader, test_loader 
 
 def create_scheme(name):
     if args.scheme == 'PRUNE':
@@ -168,14 +172,10 @@ def create_scheme(name):
         raise RuntimeError('Unknown scheme: {}'.format(args.scheme))
     return scheme
 
-def create_compressor(args,model):
+def create_compressor(args,model,corpus,device, ntokens):
     eval_batch_size = 10
-    trainloader = batchify(corpus.train, args.batch_size)
-    valloader = batchify(corpus.valid, eval_batch_size)
-    testloader = batchify(corpus.test, eval_batch_size)
 
-    # Instantiate LC optimizer
-    # TODO: Discuss and remove this
+    # lc: Instantiate LC optimizer
     sgd_params = {'momentum': args.momentum, 'weight_decay': args.weight_decay}
     lc = condensa.opt.LC(steps=args.steps,
                          l_optimizer=condensa.opt.lc.SGD,
@@ -192,19 +192,28 @@ def create_compressor(args,model):
                          mu_cap=args.mu_cap,
                          debugging_flags={'print_accuracies': True})
 
-    criterion = nn.CrossEntropyLoss().cuda()
-
-    # Condensa: Setup Compression Scheme
+    # scheme: Setup Compression Scheme
     scheme = create_scheme(args.scheme)
     logging.info(f'SCHEME: {scheme}')
+   
+    # 3 dataloaders
+    print(f'{corpus} {type(corpus)}')
+    print(f'{device} {type(device)}')
+    print(f'{args.batch_size} {type(args.batch_size)}')
+    print(f'{args.eval_batch_size} {type(args.eval_batch_size)}')
+    print(f'{args.bptt} {type(args.bptt)}')
+    train_loader, val_loader, test_loader = make_data_loaders(corpus, device, args.batch_size, args.eval_batch_size, args.bptt)
+    
+    # criterion
+    criterion = nn.CrossEntropyLoss().cuda()
 
     # Compress model using Condensa
-    compressor = condensa.Compressor(lc, scheme, model, trainloader,
-                                     testloader, valloader, criterion)
+    compressor = condensa.Compressor(lc, scheme, model, train_loader,
+                                     test_loader, val_loader, criterion, ntokens)
 
     return compressor
 
-def output_results(model_file, stats_file):
+def output_results(w, compressor, model_file, stats_file):
     torch.save(w.state_dict(), model_file)
     logging.info('[Condensa] Compressed model written to disk')
 
@@ -224,6 +233,9 @@ def output_results(model_file, stats_file):
 def main(arguments):
     args = parse_args(arguments)
     
+    device = torch.device("cuda" if args.cuda else "cpu")
+    corpus = data.Corpus(args.dataset)
+    
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,
         format='%(message)s')
@@ -236,10 +248,6 @@ def main(arguments):
 
     # Load dataset
     corpus = data.Corpus(args.dataset)
-    eval_batch_size = 10
-    train_data = batchify(corpus.train, args.batch_size)
-    val_data = batchify(corpus.valid, eval_batch_size)
-    test_data = batchify(corpus.test, eval_batch_size)
     
     # Load model architecture
     ntokens = len(corpus.dictionary)
@@ -253,18 +261,15 @@ def main(arguments):
     with open(args.model, 'rb') as f:
         model = torch.load(f).to(device)
     
-
     # Condensa: Run Compression
-    compressor = create_compressor(args,model)
+    compressor = create_compressor(args,model,corpus,device, ntokens)
     w = compressor.run()
 
     # Condensa: Output Results
-    output_results(args.out, args.csv)
+    output_results(w, compressor, args.out, args.csv)
     return 0
 
 if __name__ == '__main__':
     args = parse_args(sys.argv[1:])
 
-    device = torch.device("cuda" if args.cuda else "cpu")
-    corpus = data.Corpus(args.dataset)
     sys.exit(main(sys.argv[1:]))

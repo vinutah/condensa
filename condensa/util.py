@@ -74,33 +74,37 @@ def magnitude_threshold(module, density):
     params = torch.nn.utils.parameters_to_vector(module.parameters())
     return T.threshold(params, density)
 
-def accuracy(output, target, topk=(1, )):
-    """
-    Computes the precision@k for the specified values of k
+def accuracy(loss):
+    import math
+    return math.exp(loss)
 
-    :param output: Predicted output batch
-    :type output: `torch.Tensor`
-    :param target: Actual output batch
-    :type target: `torch.Tensor`
-    :param topk: Top-k value
-    :type topk: `Tuple`
-    :return: Model accuracy
-    :rtype: `float`
-    """
-    maxk = max(topk)
-    batch_size = target.size(0)
+#def accuracy(output, target, topk=(1, )):
+#    """
+#    Computes the precision@k for the specified values of k
+#
+#    :param output: Predicted output batch
+#    :type output: `torch.Tensor`
+#    :param target: Actual output batch
+#    :type target: `torch.Tensor`
+#    :param topk: Top-k value
+#    :type topk: `Tuple`
+#    :return: Model accuracy
+#    :rtype: `float`
+#    """
+#    maxk = max(topk)
+#    batch_size = target.size(0)
+#
+#    _, pred = output.topk(maxk, 1, True, True)
+#    pred = pred.t()
+#    correct = pred.eq(target.view(1, -1).expand_as(pred))
+#
+#    res = []
+#    for k in topk:
+#        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+#        res.append(correct_k.mul_(100.0 / batch_size))
+#    return res
 
-    _, pred = output.topk(maxk, 1, True, True)
-    pred = pred.t()
-    correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-    res = []
-    for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
-        res.append(correct_k.mul_(100.0 / batch_size))
-    return res
-
-def loss(model, criterion, dataloader):
+def loss(model, criterion, dataloader, ntokens):
     """
     Computes loss on given dataset.
   
@@ -127,11 +131,19 @@ def loss(model, criterion, dataloader):
             if cast2fp16:
                 input = input.half()
             output = model(input)
-            loss = criterion(output, target)
-            losses.update(to_python_float(loss.data), input.size(0))
+            #loss = criterion(output, target)
+            #loss = criterion(output.view(-1, ntokens), target)
+            #losses.update(to_python_float(loss.data), input.size(0))
+            loss = criterion(output.view(-1, ntokens), target)
+            #prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
+            prec1 = accuracy(loss)
+            #losses.update(to_python_float(loss.data), input.size(0))
+            #top1.update(to_python_float(prec1), input.size(0))
+            losses.update((loss.data), input.size(0))
+
     return losses.avg
 
-def loss_and_accuracy(model, criterion, dataloader):
+def loss_and_accuracy(model, criterion, dataloader, ntokens):
     """
     Computes loss and accuracy of given model.
   
@@ -162,10 +174,14 @@ def loss_and_accuracy(model, criterion, dataloader):
             if cast2fp16:
                 input = input.half()
             output = model(input)
-            loss = criterion(output, target)
-            prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
-            losses.update(to_python_float(loss.data), input.size(0))
-            top1.update(to_python_float(prec1), input.size(0))
+            #loss = criterion(output, target)
+            loss = criterion(output.view(-1, ntokens), target)
+            #prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
+            prec1 = accuracy(loss)
+            #losses.update(to_python_float(loss.data), input.size(0))
+            #top1.update(to_python_float(prec1), input.size(0))
+            losses.update((loss.data), input.size(0))
+            top1.update((prec1), input.size(0))
     return (losses.avg, top1.avg)
 
 def compressed_model_stats(w, wc):

@@ -23,7 +23,8 @@ class Compressor(object):
                  trainloader,
                  testloader,
                  valloader,
-                 criterion):
+                 criterion,
+                 ntokens):
         """
         Creates a `Compressor` instance.
 
@@ -47,6 +48,7 @@ class Compressor(object):
         self.testloader = testloader
         self.valloader = valloader
         self.criterion = criterion
+        self.ntokens = ntokens
 
         self._statistics = None
 
@@ -69,6 +71,6 @@ class Compressor(object):
         """
         w, statistics = self.opt.compress(self.model, self.pi, self.delta,
                                           self.trainloader, self.testloader,
-                                          self.valloader, self.criterion)
+                                          self.valloader, self.criterion, self.ntokens)
         self._statistics = statistics
         return w
