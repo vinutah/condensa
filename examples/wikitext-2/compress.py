@@ -176,7 +176,7 @@ def create_compressor(args,model,corpus,device, ntokens):
     eval_batch_size = 10
 
     # lc: Instantiate LC optimizer
-    sgd_params = {'momentum': args.momentum, 'weight_decay': args.weight_decay}
+    sgd_params = {'momentum': args.momentum, 'weight_decay': args.weight_decay, 'grad_clip': args.clip}
     lc = condensa.opt.LC(steps=args.steps,
                          l_optimizer=condensa.opt.lc.SGD,
                          l_optimizer_params=sgd_params,
@@ -197,11 +197,6 @@ def create_compressor(args,model,corpus,device, ntokens):
     logging.info(f'SCHEME: {scheme}')
    
     # 3 dataloaders
-    print(f'{corpus} {type(corpus)}')
-    print(f'{device} {type(device)}')
-    print(f'{args.batch_size} {type(args.batch_size)}')
-    print(f'{args.eval_batch_size} {type(args.eval_batch_size)}')
-    print(f'{args.bptt} {type(args.bptt)}')
     train_loader, val_loader, test_loader = make_data_loaders(corpus, device, args.batch_size, args.eval_batch_size, args.bptt)
     
     # criterion

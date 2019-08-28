@@ -15,7 +15,7 @@ def call_ngc(name, command):
         'ngc', 'batch', 'run', 
         '--name', name, 
         '--total-runtime', '168h',
-        '--image', 'nvidia/pytorch:19.04-py3', 
+        '--image', 'nvidian/pytorch:19.08-py3', 
         '--ace', 'nv-us-west-2',
         '--instance', 'dgx1v.16g.8.norm',
         '--commandline', 'sleep 168h', 

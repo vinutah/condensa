@@ -17,7 +17,7 @@ import torch
 
 class SGD(object):
     """Custom SGD implementation for L-C optimizer."""
-    def __init__(self, w, lr=None, momentum=None, weight_decay=0):
+    def __init__(self, w, lr=None, momentum=None, weight_decay=0, grad_clip=0.0):
         """
         Creates instance of `SGD`.
 
@@ -48,6 +48,8 @@ class SGD(object):
         self.lr = lr
         self.momentum = momentum
         self.weight_decay = weight_decay
+        self.grad_clip = grad_clip
+
 
         self.state = defaultdict(dict)
 
@@ -104,6 +106,7 @@ class SGD(object):
             loss = closure()
 
         self.learning_rate = lr
+        torch.nn.utils.clip_grad_norm_(w_m.parameters(), self.grad_clip)
         for w_m, theta_m, lm_m in zip(self.w.modules(), theta.modules(),
                                       lm.modules()):
             if hasattr(theta_m, 'condense'):
